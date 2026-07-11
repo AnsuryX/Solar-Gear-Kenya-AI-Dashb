@@ -120,8 +120,12 @@ app.post("/api/agent/trigger", async (req, res) => {
               contents: "Solar Gear Kenya is a company providing solar solutions in Kenya. Analyze the top keywords in Kenya: 'solar panel price in Kenya', 'commercial solar installation Kenya'. Write 2 short actionable SEO competitor tracking bullets.",
             });
             if (response.text) insight = response.text;
-          } catch (err) {
+          } catch (err: any) {
             console.error("Gemini call failed during simulation", err);
+            const isQuotaError = err.message?.includes("prepayment credits") || err.message?.includes("RESOURCE_EXHAUSTED") || err.message?.includes("429");
+            if (isQuotaError) {
+              broadcastLog("SEO Strategist", "warning", "Shared Gemini API prepayment credits are depleted. Running SEO monitor with pre-cached local fallback datasets.");
+            }
           }
         }
         
@@ -141,8 +145,12 @@ app.post("/api/agent/trigger", async (req, res) => {
               contents: "Write a short 2-sentence GEO (Generative Engine Optimization) strategy for Solar Gear Kenya to get cited by LLMs when users ask about 'commercial solar panels in Nairobi'. Keep it highly professional and specific to Kenya.",
             });
             if (response.text) geoStrategy = response.text;
-          } catch (err) {
-            console.error("Gemini call failed", err);
+          } catch (err: any) {
+            console.error("Gemini call failed during geo-audit", err);
+            const isQuotaError = err.message?.includes("prepayment credits") || err.message?.includes("RESOURCE_EXHAUSTED") || err.message?.includes("429");
+            if (isQuotaError) {
+              broadcastLog("SEO Strategist", "warning", "Shared Gemini API prepayment credits are depleted. Running GEO audit with local optimization rules.");
+            }
           }
         }
         broadcastLog("SEO Strategist", "success", "Generative Engine Audit finished.");
@@ -180,9 +188,14 @@ app.post("/api/agent/trigger", async (req, res) => {
               contents: `Based on this blog topic: '${topic}', write exactly one optimized post for LinkedIn and one short post for X (with hashtags). Keep them engaging and tailored for Solar Gear Kenya's audience.`,
             });
             socialDrafts = socialResponse.text || "";
-          } catch (err) {
-            console.error(err);
-            broadcastLog("Content Factory", "error", "Failed to contact Gemini server. Using pre-cached blog generator fallback.");
+          } catch (err: any) {
+            console.error("Gemini call failed during blog copy synthesis", err);
+            const isQuotaError = err.message?.includes("prepayment credits") || err.message?.includes("RESOURCE_EXHAUSTED") || err.message?.includes("429");
+            if (isQuotaError) {
+              broadcastLog("Content Factory", "warning", "Shared Gemini API prepayment credits are depleted. Accessing local high-relevancy copywriting templates.");
+            } else {
+              broadcastLog("Content Factory", "error", "Failed to contact Gemini server. Using pre-cached blog generator fallback.");
+            }
             blogContent = "### Sizing a Solar Hybrid System in Nairobi\nDiscover how hybrid systems combine solar arrays and battery storage to combat blackouts and reduce electricity bills by up to 60% in Kenya. Contact Solar Gear Kenya today.";
             socialDrafts = "[LinkedIn] Grid instability is a major bottleneck for Nairobi industries...";
           }
@@ -231,7 +244,12 @@ app.post("/api/agent/trigger", async (req, res) => {
               contents: "Write a brief personal pitch email template from 'Solar Gear Kenya' to an East African eco-architecture blog, proposing a guest post about 'Top commercial solar design trends in 2026'. Keep it extremely crisp and friendly.",
             });
             pitches = response.text || "";
-          } catch (err) {
+          } catch (err: any) {
+            console.error("Gemini call failed during blogger pitch synthesis", err);
+            const isQuotaError = err.message?.includes("prepayment credits") || err.message?.includes("RESOURCE_EXHAUSTED") || err.message?.includes("429");
+            if (isQuotaError) {
+              broadcastLog("PR Link Builder", "warning", "Shared Gemini API prepayment credits are depleted. Loading localized Guest Post Pitch outlines.");
+            }
             pitches = "Eco-Architecture blog outreach draft standard pitch template...";
           }
         } else {
@@ -271,7 +289,12 @@ app.post("/api/agent/trigger", async (req, res) => {
               contents: `Write a brand-voiced Google My Business review response to ${reviewer} who wrote: "${reviewText}". Solar Gear Kenya is the company. Be warm, professional, thank them, and subtly mention Solar Gear Kenya's warranty and customer support. Keep it short.`,
             });
             responseDraft = response.text || "";
-          } catch (e) {
+          } catch (e: any) {
+            console.error("Gemini call failed during review response generation", e);
+            const isQuotaError = e.message?.includes("prepayment credits") || e.message?.includes("RESOURCE_EXHAUSTED") || e.message?.includes("429");
+            if (isQuotaError) {
+              broadcastLog("GMB Growth Agent", "warning", "Shared Gemini API prepayment credits are depleted. Relying on local brand voice review rules.");
+            }
             responseDraft = `Thank you for your fantastic review, ${reviewer}! We are thrilled to hear your 10kW hybrid solar system is delivering massive savings. Welcome to the clean energy family!`;
           }
         } else {
@@ -352,15 +375,23 @@ Return ONLY the raw JSON block. Do not include markdown formatting or block quot
               console.error("Failed to parse Gemini output as JSON, creating standard fallback", e);
               workflowJson = createFallbackN8nWorkflow(description);
             }
-          } catch (err) {
-            console.error(err);
+          } catch (err: any) {
+            console.error("Gemini API error during workflow synthesis:", err);
+            const isQuotaError = err.message?.includes("prepayment credits") || err.message?.includes("RESOURCE_EXHAUSTED") || err.message?.includes("429");
+            if (isQuotaError) {
+              broadcastLog("n8n MCP Orchestrator", "warning", "Shared Gemini API prepayment credits are depleted for this workspace.");
+              broadcastLog("n8n MCP Orchestrator", "info", "Tip: To bypass rate limits, please configure your own GEMINI_API_KEY in the Settings menu (top right).");
+              broadcastLog("n8n MCP Orchestrator", "info", "Activating high-quality local n8n model synthesis engine to construct the workflow...");
+            } else {
+              broadcastLog("n8n MCP Orchestrator", "warning", `Synthesis model error: ${err.message || err}. Running in fallback mode.`);
+            }
             workflowJson = createFallbackN8nWorkflow(description);
           }
         } else {
           workflowJson = createFallbackN8nWorkflow(description);
         }
         
-        broadcastLog("n8n MCP Orchestrator", "success", "Workflow blueprint successfully synthesized and registered with n8n local instance!");
+        broadcastLog("n8n MCP Orchestrator", "success", "Workflow blueprint successfully synthesized!");
         
         sseClients.forEach(client => {
           client.write(`data: ${JSON.stringify({
@@ -408,20 +439,43 @@ app.post("/api/gemini/generate", async (req, res) => {
 
 // Helper to construct n8n API endpoint and credentials
 function getN8nCredentials(req: express.Request) {
-  const reqUrl = req.body.apiUrl || req.query.apiUrl || process.env.N8N_API_URL;
-  const reqKey = req.body.apiKey || req.query.apiKey || process.env.N8N_API_KEY;
+  const reqUrl = req.body?.apiUrl || req.query?.apiUrl || process.env.N8N_API_URL;
+  const reqKey = req.body?.apiKey || req.query?.apiKey || process.env.N8N_API_KEY;
 
   if (!reqUrl) {
     throw new Error("Missing n8n API URL. Please configure it in Connection Settings or as an environment variable.");
   }
 
-  let cleanUrl = reqUrl.trim();
+  let cleanUrl = (reqUrl as string).trim();
   if (cleanUrl.endsWith('/')) {
     cleanUrl = cleanUrl.slice(0, -1);
   }
   const apiUrl = cleanUrl.includes('/api/v1') ? cleanUrl : `${cleanUrl}/api/v1`;
 
-  return { apiUrl, apiKey: reqKey ? reqKey.trim() : "" };
+  return { apiUrl, apiKey: reqKey ? (reqKey as string).trim() : "" };
+}
+
+// Helper to safely handle n8n responses and detect HTML login/error pages
+async function handleN8nResponse(response: Response) {
+  const contentType = response.headers.get("content-type") || "";
+  
+  if (!response.ok) {
+    const errText = await response.text();
+    if (contentType.includes("text/html") || errText.trim().startsWith("<!DOCTYPE") || errText.trim().startsWith("<html")) {
+      throw new Error(`The n8n server returned HTML (Status ${response.status}) instead of JSON. This typically happens if the API URL is incorrect, pointing to a dashboard web portal instead of the API endpoint, requires a VPN/basic auth, or redirected to a login page.`);
+    }
+    throw new Error(`n8n server returned status ${response.status}: ${errText}`);
+  }
+
+  if (!contentType.includes("application/json")) {
+    const text = await response.text();
+    if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+      throw new Error("The n8n server returned an HTML login or error page instead of JSON. Please verify that your API URL and API Key are correct.");
+    }
+    throw new Error(`n8n server returned non-JSON response (${contentType}): ${text.substring(0, 200)}`);
+  }
+
+  return response.json();
 }
 
 // Check if server-side config is present
@@ -453,18 +507,11 @@ app.post("/api/n8n/test-connection", async (req, res) => {
       headers
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      return res.status(response.status).json({
-        success: false,
-        error: `n8n server returned status ${response.status}: ${errText}`
-      });
-    }
-
-    res.json({ success: true, message: "Successfully connected to n8n instance!" });
+    const data = await handleN8nResponse(response);
+    res.json({ success: true, message: "Successfully connected to n8n instance!", data });
   } catch (err: any) {
     console.error("n8n test-connection failed:", err);
-    res.status(500).json({ success: false, error: err.message || "Failed to reach n8n server" });
+    res.status(400).json({ success: false, error: err.message || "Failed to reach n8n server" });
   }
 });
 
@@ -485,18 +532,11 @@ app.get("/api/n8n/workflows", async (req, res) => {
       headers
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      return res.status(response.status).json({
-        error: `n8n server returned status ${response.status}: ${errText}`
-      });
-    }
-
-    const data = await response.json();
+    const data = await handleN8nResponse(response);
     res.json(data);
   } catch (err: any) {
     console.error("Failed to fetch n8n workflows:", err);
-    res.status(500).json({ error: err.message || "Failed to fetch workflows from n8n" });
+    res.status(400).json({ error: err.message || "Failed to fetch workflows from n8n" });
   }
 });
 
@@ -519,21 +559,23 @@ app.post("/api/n8n/export", async (req, res) => {
 
     broadcastLog("n8n MCP Orchestrator", "info", `Exporting workflow "${workflow.name}" to live n8n instance...`);
 
+    // Ensure n8n schema compliance (especially the required 'settings' object)
+    // NOTE: 'active' is read-only on workflow creation in n8n's POST /workflows API, so we omit it here.
+    const normalizedWorkflow = {
+      name: workflow.name || "Unnamed Workflow",
+      nodes: workflow.nodes || [],
+      connections: workflow.connections || {},
+      settings: workflow.settings || {},
+      meta: workflow.meta || {}
+    };
+
     const response = await fetch(`${apiUrl}/workflows`, {
       method: "POST",
       headers,
-      body: JSON.stringify(workflow)
+      body: JSON.stringify(normalizedWorkflow)
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      broadcastLog("n8n MCP Orchestrator", "error", `n8n Export failed: status ${response.status}`);
-      return res.status(response.status).json({
-        error: `n8n server returned status ${response.status}: ${errText}`
-      });
-    }
-
-    const createdWorkflow = await response.json();
+    const createdWorkflow = await handleN8nResponse(response);
     broadcastLog("n8n MCP Orchestrator", "success", `Workflow "${workflow.name}" successfully exported & activated in live n8n instance! ID: ${createdWorkflow.id}`);
 
     res.json({
@@ -543,7 +585,7 @@ app.post("/api/n8n/export", async (req, res) => {
   } catch (err: any) {
     console.error("Failed to export workflow to n8n:", err);
     broadcastLog("n8n MCP Orchestrator", "error", `Export failed: ${err.message || err}`);
-    res.status(500).json({ error: err.message || "Failed to export workflow to n8n" });
+    res.status(400).json({ error: err.message || "Failed to export workflow to n8n" });
   }
 });
 

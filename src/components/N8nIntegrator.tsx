@@ -117,15 +117,22 @@ export default function N8nIntegrator({ triggerAgent, latestWorkflow, isLoading 
   const fetchLiveWorkflows = async () => {
     if (!apiUrl) return;
     setIsLoadingWorkflows(true);
+    setConnectionError(null);
     try {
       const queryParams = new URLSearchParams({ apiUrl, apiKey });
       const res = await fetch(`/api/n8n/workflows?${queryParams.toString()}`);
-      if (!res.ok) throw new Error(`Returned status ${res.status}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Returned status ${res.status}`);
+      }
       const data = await res.json();
       const workflows = Array.isArray(data) ? data : (data.data || []);
       setLiveWorkflows(workflows);
-    } catch (e) {
+      setConnectionStatus('connected');
+    } catch (e: any) {
       console.error("Failed to fetch live workflows:", e);
+      setConnectionStatus('failed');
+      setConnectionError(e.message || "Failed to fetch live workflows.");
     } finally {
       setIsLoadingWorkflows(false);
     }
