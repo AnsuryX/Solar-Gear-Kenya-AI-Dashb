@@ -45,6 +45,9 @@ export default function N8nIntegrator({ triggerAgent, latestWorkflow, isLoading 
   const [apiKey, setApiKey] = useState<string>(() => {
     return localStorage.getItem('n8n_api_key') || "";
   });
+  const [syncMode, setSyncMode] = useState<'proxy' | 'direct'>(() => {
+    return (localStorage.getItem('n8n_sync_mode') as 'proxy' | 'direct') || 'proxy';
+  });
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'untested' | 'connected' | 'failed'>('untested');
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -59,11 +62,25 @@ export default function N8nIntegrator({ triggerAgent, latestWorkflow, isLoading 
   const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
+  // Clean URL helper for direct client-to-n8n sync
+  const cleanN8nUrl = (url: string) => {
+    let cleanUrl = url.trim();
+    if (cleanUrl.endsWith('/')) {
+      cleanUrl = cleanUrl.slice(0, -1);
+    }
+    return cleanUrl.includes('/api/v1') ? cleanUrl : `${cleanUrl}/api/v1`;
+  };
+
   // Load server-side defaults on mount
   useEffect(() => {
     const fetchConfig = async () => {
       try {
         const res = await fetch('/api/n8n/config');
+        if (res.status === 404) {
+          setSyncMode('direct');
+          localStorage.setItem('n8n_sync_mode', 'direct');
+          return;
+        }
         const data = await res.json();
         // Only set localStorage if the user has not configured anything yet
         if (data.serverUrl && !localStorage.getItem('n8n_api_url')) {
@@ -71,7 +88,9 @@ export default function N8nIntegrator({ triggerAgent, latestWorkflow, isLoading 
           localStorage.setItem('n8n_api_url', data.serverUrl);
         }
       } catch (e) {
-        console.error("Failed to load server n8n config defaults:", e);
+        console.error("Failed to load server n8n config defaults, falling back to direct mode:", e);
+        setSyncMode('direct');
+        localStorage.setItem('n8n_sync_mode', 'direct');
       }
     };
     fetchConfig();
@@ -87,23 +106,76 @@ export default function N8nIntegrator({ triggerAgent, latestWorkflow, isLoading 
     setExportedWorkflow(null);
   };
 
+  const handleSaveSyncMode = (mode: 'proxy' | 'direct') => {
+    setSyncMode(mode);
+    localStorage.setItem('n8n_sync_mode', mode);
+    setConnectionStatus('untested');
+    setExportedWorkflow(null);
+  };
+
+  // Run test connection directly from browser
+  const handleTestConnectionDirect = async () => {
+    try {
+      const endpoint = cleanN8nUrl(apiUrl);
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (apiKey) {
+        headers['X-N8N-API-KEY'] = apiKey.trim();
+      }
+      
+      const res = await fetch(`${endpoint}/workflows?limit=1`, {
+        method: 'GET',
+        headers
+      });
+      
+      if (!res.ok) {
+        let errMsg = `Status ${res.status}`;
+        try {
+          const errData = await res.json();
+          errMsg = errData.message || errMsg;
+        } catch {}
+        throw new Error(`n8n direct connection error: ${errMsg}`);
+      }
+      
+      setConnectionStatus('connected');
+      fetchLiveWorkflowsDirect();
+    } catch (e: any) {
+      setConnectionStatus('failed');
+      setConnectionError(e.message || "Direct connection failed. Check your URL, API Key, and verify that CORS is enabled on your n8n instance or try using Server Proxy.");
+    }
+  };
+
   // Run test connection
   const handleTestConnection = async () => {
     setIsTestingConnection(true);
     setConnectionError(null);
     try {
-      const res = await fetch('/api/n8n/test-connection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiUrl, apiKey })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setConnectionStatus('connected');
-        fetchLiveWorkflows();
+      if (syncMode === 'proxy') {
+        const res = await fetch('/api/n8n/test-connection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiUrl, apiKey })
+        });
+        
+        if (res.status === 404) {
+          console.warn("Server Proxy API not found (running on Vercel static build). Auto-switching to Direct Sync.");
+          setSyncMode('direct');
+          localStorage.setItem('n8n_sync_mode', 'direct');
+          await handleTestConnectionDirect();
+          return;
+        }
+        
+        const data = await res.json();
+        if (data.success) {
+          setConnectionStatus('connected');
+          fetchLiveWorkflows();
+        } else {
+          setConnectionStatus('failed');
+          setConnectionError(data.error || "Connection failed.");
+        }
       } else {
-        setConnectionStatus('failed');
-        setConnectionError(data.error || "Connection failed.");
+        await handleTestConnectionDirect();
       }
     } catch (e: any) {
       setConnectionStatus('failed');
@@ -113,14 +185,66 @@ export default function N8nIntegrator({ triggerAgent, latestWorkflow, isLoading 
     }
   };
 
+  // Fetch live workflows list directly from browser
+  const fetchLiveWorkflowsDirect = async () => {
+    if (!apiUrl) return;
+    setIsLoadingWorkflows(true);
+    setConnectionError(null);
+    try {
+      const endpoint = cleanN8nUrl(apiUrl);
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (apiKey) {
+        headers['X-N8N-API-KEY'] = apiKey.trim();
+      }
+      
+      const res = await fetch(`${endpoint}/workflows`, {
+        method: 'GET',
+        headers
+      });
+      
+      if (!res.ok) {
+        let errMsg = `Status ${res.status}`;
+        try {
+          const errData = await res.json();
+          errMsg = errData.message || errMsg;
+        } catch {}
+        throw new Error(errMsg);
+      }
+      
+      const data = await res.json();
+      const workflows = Array.isArray(data) ? data : (data.data || []);
+      setLiveWorkflows(workflows);
+      setConnectionStatus('connected');
+    } catch (e: any) {
+      console.error("Failed to fetch live workflows directly:", e);
+      setConnectionStatus('failed');
+      setConnectionError(e.message || "Failed to fetch live workflows directly. Check your CORS setup.");
+    } finally {
+      setIsLoadingWorkflows(false);
+    }
+  };
+
   // Fetch live workflows list
   const fetchLiveWorkflows = async () => {
     if (!apiUrl) return;
+    if (syncMode === 'direct') {
+      await fetchLiveWorkflowsDirect();
+      return;
+    }
+
     setIsLoadingWorkflows(true);
     setConnectionError(null);
     try {
       const queryParams = new URLSearchParams({ apiUrl, apiKey });
       const res = await fetch(`/api/n8n/workflows?${queryParams.toString()}`);
+      if (res.status === 404) {
+        setSyncMode('direct');
+        localStorage.setItem('n8n_sync_mode', 'direct');
+        await fetchLiveWorkflowsDirect();
+        return;
+      }
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || `Returned status ${res.status}`);
@@ -143,10 +267,62 @@ export default function N8nIntegrator({ triggerAgent, latestWorkflow, isLoading 
     if (apiUrl) {
       fetchLiveWorkflows();
     }
-  }, [apiUrl]);
+  }, [apiUrl, syncMode]);
+
+  // Export current workflow directly from browser
+  const handleExportWorkflowDirect = async () => {
+    setIsExporting(true);
+    setExportError(null);
+    setExportedWorkflow(null);
+    try {
+      const endpoint = cleanN8nUrl(apiUrl);
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (apiKey) {
+        headers['X-N8N-API-KEY'] = apiKey.trim();
+      }
+      
+      const normalizedWorkflow = {
+        name: activeWorkflow.name || "Unnamed Workflow",
+        nodes: activeWorkflow.nodes || [],
+        connections: activeWorkflow.connections || {},
+        settings: activeWorkflow.settings || {},
+        meta: activeWorkflow.meta || {}
+      };
+
+      const res = await fetch(`${endpoint}/workflows`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(normalizedWorkflow)
+      });
+      
+      if (!res.ok) {
+        let errMsg = `Status ${res.status}`;
+        try {
+          const errData = await res.json();
+          errMsg = errData.message || errMsg;
+        } catch {}
+        throw new Error(errMsg);
+      }
+      
+      const createdWorkflow = await res.json();
+      setExportedWorkflow(createdWorkflow);
+      fetchLiveWorkflowsDirect();
+    } catch (e: any) {
+      setExportError(e.message || "Failed to export workflow directly.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Export current workflow
   const handleExportWorkflow = async () => {
+    if (syncMode === 'direct') {
+      await handleExportWorkflowDirect();
+      return;
+    }
+
     setIsExporting(true);
     setExportError(null);
     setExportedWorkflow(null);
@@ -160,6 +336,15 @@ export default function N8nIntegrator({ triggerAgent, latestWorkflow, isLoading 
           workflow: activeWorkflow
         })
       });
+      
+      if (res.status === 404) {
+        console.warn("Export API not found (running on Vercel static build). Auto-switching to Direct Sync.");
+        setSyncMode('direct');
+        localStorage.setItem('n8n_sync_mode', 'direct');
+        await handleExportWorkflowDirect();
+        return;
+      }
+
       const data = await res.json();
       if (data.success) {
         setExportedWorkflow(data.workflow);
@@ -358,13 +543,44 @@ export default function N8nIntegrator({ triggerAgent, latestWorkflow, isLoading 
               <span className="text-[9px] text-slate-500">Used securely via local storage to authorize workflow uploads.</span>
             </div>
 
+            <div className="md:col-span-2 space-y-1.5 pt-2 border-t border-slate-800/50">
+              <label className="text-[10px] uppercase font-bold text-slate-500 flex items-center gap-1">
+                Sync Routing Mode
+              </label>
+              <div className="flex items-center bg-sleek-terminal p-1 rounded border border-slate-800 max-w-md gap-1">
+                <button
+                  onClick={() => handleSaveSyncMode('proxy')}
+                  className={`flex-1 px-3 py-1.5 rounded text-[10px] font-bold transition ${
+                    syncMode === 'proxy' ? 'bg-solar-500 text-white' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  type="button"
+                >
+                  Server API Proxy
+                </button>
+                <button
+                  onClick={() => handleSaveSyncMode('direct')}
+                  className={`flex-1 px-3 py-1.5 rounded text-[10px] font-bold transition ${
+                    syncMode === 'direct' ? 'bg-solar-500 text-white' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  type="button"
+                >
+                  Direct Browser Sync
+                </button>
+              </div>
+              <span className="text-[9px] text-slate-500 block">
+                {syncMode === 'proxy' 
+                  ? "Routes traffic securely through our server-side Express API to hide keys and bypass CORS issues." 
+                  : "Connects directly from your browser to your n8n instance. Perfect for static deployment hosts like Vercel."}
+              </span>
+            </div>
+
             <div className="md:col-span-2 flex items-center justify-between pt-2 border-t border-slate-800/50">
               <div className="text-xs text-slate-400">
                 {connectionStatus === 'connected' && (
-                  <span className="text-emerald-400 font-medium">✓ Credentials valid! Connected successfully.</span>
+                  <span className="text-emerald-400 font-medium">✓ Connected successfully via {syncMode === 'proxy' ? 'Server Proxy' : 'Direct Browser Sync'}!</span>
                 )}
                 {connectionStatus === 'failed' && (
-                  <span className="text-rose-400 text-[11px] block max-w-md truncate">✗ Error: {connectionError}</span>
+                  <span className="text-rose-400 text-[11px] block max-w-md truncate" title={connectionError || ""}>✗ Error: {connectionError}</span>
                 )}
               </div>
               

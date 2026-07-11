@@ -47,4 +47,6 @@ export interface N8nWorkflow {
       index: number;
     }>>;
   }>;
+  settings?: any;
+  meta?: any;
 }
