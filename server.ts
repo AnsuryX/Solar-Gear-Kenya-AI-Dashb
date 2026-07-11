@@ -406,6 +406,147 @@ app.post("/api/gemini/generate", async (req, res) => {
   }
 });
 
+// Helper to construct n8n API endpoint and credentials
+function getN8nCredentials(req: express.Request) {
+  const reqUrl = req.body.apiUrl || req.query.apiUrl || process.env.N8N_API_URL;
+  const reqKey = req.body.apiKey || req.query.apiKey || process.env.N8N_API_KEY;
+
+  if (!reqUrl) {
+    throw new Error("Missing n8n API URL. Please configure it in Connection Settings or as an environment variable.");
+  }
+
+  let cleanUrl = reqUrl.trim();
+  if (cleanUrl.endsWith('/')) {
+    cleanUrl = cleanUrl.slice(0, -1);
+  }
+  const apiUrl = cleanUrl.includes('/api/v1') ? cleanUrl : `${cleanUrl}/api/v1`;
+
+  return { apiUrl, apiKey: reqKey ? reqKey.trim() : "" };
+}
+
+// Check if server-side config is present
+app.get("/api/n8n/config", (req, res) => {
+  res.json({
+    hasServerUrl: !!process.env.N8N_API_URL,
+    hasServerKey: !!process.env.N8N_API_KEY,
+    serverUrl: process.env.N8N_API_URL || ""
+  });
+});
+
+// Test connection to n8n
+app.post("/api/n8n/test-connection", async (req, res) => {
+  try {
+    const { apiUrl, apiKey } = getN8nCredentials(req);
+    
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json"
+    };
+    if (apiKey) {
+      headers["X-N8N-API-KEY"] = apiKey;
+    }
+
+    const testUrl = `${apiUrl}/workflows?limit=1`;
+    console.log(`Testing n8n connection to: ${testUrl}`);
+    
+    const response = await fetch(testUrl, {
+      method: "GET",
+      headers
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(response.status).json({
+        success: false,
+        error: `n8n server returned status ${response.status}: ${errText}`
+      });
+    }
+
+    res.json({ success: true, message: "Successfully connected to n8n instance!" });
+  } catch (err: any) {
+    console.error("n8n test-connection failed:", err);
+    res.status(500).json({ success: false, error: err.message || "Failed to reach n8n server" });
+  }
+});
+
+// Fetch active workflows
+app.get("/api/n8n/workflows", async (req, res) => {
+  try {
+    const { apiUrl, apiKey } = getN8nCredentials(req);
+    
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json"
+    };
+    if (apiKey) {
+      headers["X-N8N-API-KEY"] = apiKey;
+    }
+
+    const response = await fetch(`${apiUrl}/workflows`, {
+      method: "GET",
+      headers
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(response.status).json({
+        error: `n8n server returned status ${response.status}: ${errText}`
+      });
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (err: any) {
+    console.error("Failed to fetch n8n workflows:", err);
+    res.status(500).json({ error: err.message || "Failed to fetch workflows from n8n" });
+  }
+});
+
+// Export workflow to live n8n instance
+app.post("/api/n8n/export", async (req, res) => {
+  try {
+    const { apiUrl, apiKey } = getN8nCredentials(req);
+    const { workflow } = req.body;
+
+    if (!workflow || typeof workflow !== "object") {
+      return res.status(400).json({ error: "Missing workflow object in request body." });
+    }
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json"
+    };
+    if (apiKey) {
+      headers["X-N8N-API-KEY"] = apiKey;
+    }
+
+    broadcastLog("n8n MCP Orchestrator", "info", `Exporting workflow "${workflow.name}" to live n8n instance...`);
+
+    const response = await fetch(`${apiUrl}/workflows`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(workflow)
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      broadcastLog("n8n MCP Orchestrator", "error", `n8n Export failed: status ${response.status}`);
+      return res.status(response.status).json({
+        error: `n8n server returned status ${response.status}: ${errText}`
+      });
+    }
+
+    const createdWorkflow = await response.json();
+    broadcastLog("n8n MCP Orchestrator", "success", `Workflow "${workflow.name}" successfully exported & activated in live n8n instance! ID: ${createdWorkflow.id}`);
+
+    res.json({
+      success: true,
+      workflow: createdWorkflow
+    });
+  } catch (err: any) {
+    console.error("Failed to export workflow to n8n:", err);
+    broadcastLog("n8n MCP Orchestrator", "error", `Export failed: ${err.message || err}`);
+    res.status(500).json({ error: err.message || "Failed to export workflow to n8n" });
+  }
+});
+
 // Helper sleep function for nice staggered logs
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
