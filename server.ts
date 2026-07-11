@@ -306,9 +306,35 @@ app.post("/api/agent/trigger", async (req, res) => {
         let workflowJson = {};
         if (ai) {
           try {
-            const systemPrompt = `You are an expert n8n workflow designer.
-Generate a valid, compact JSON schema representing an n8n workflow that fulfills this user request: "${description}".
-Output ONLY the raw JSON block representing the nodes and connections of the workflow. Do not include markdown codeblocks (no \`\`\`json) or other text, just the raw valid JSON.`;
+            const systemPrompt = `You are an expert n8n workflow designer specializing in integrations for Solar Gear Kenya.
+Your task is to generate a fully functional, production-ready n8n workflow JSON schema based on this user request: "${description}".
+
+CRITICAL DESIGN PRINCIPLES:
+1. Use standard, official n8n node types:
+   - Webhook Trigger: "n8n-nodes-base.webhook" (typeVersion: 1)
+   - Google Sheets: "n8n-nodes-base.googleSheets" (typeVersion: 4)
+   - Gmail: "n8n-nodes-base.gmail" (typeVersion: 2)
+   - Slack: "n8n-nodes-base.slack" (typeVersion: 2)
+   - Twilio: "n8n-nodes-base.twilio" (typeVersion: 1)
+   - Google Gemini Chat Model (Advanced AI): "n8n-nodes-base.googleGemini" (typeVersion: 1) or "n8n-nodes-base.googleAi" (typeVersion: 1)
+   - Postgres: "n8n-nodes-base.postgres" (typeVersion: 2)
+   - Schedule Trigger: "n8n-nodes-base.scheduleTrigger" (typeVersion: 1)
+2. Every node MUST have a unique UUID-v4 format "id" (e.g. "e3f89012-4bf3-4c90-9c2b-c8ff46d89551") and a unique "name" (describing what it does in this workflow).
+3. Under the "connections" object, map source node NAMES (not IDs) to target nodes. The structure must be:
+   "Source Node Name": {
+     "main": [
+       [
+         {
+           "node": "Target Node Name",
+           "type": "main",
+           "index": 0
+         }
+       ]
+     ]
+   }
+4. Arrange node "position" coordinates to flow left-to-right (e.g., node 1: [100, 200], node 2: [350, 200], node 3: [600, 200]).
+
+Return ONLY the raw JSON block. Do not include markdown formatting or block quotes (no \`\`\`json or \`\`\`). Ensure it is a valid parseable JSON.`;
             
             const response = await ai.models.generateContent({
               model: "gemini-3.5-flash",
@@ -320,7 +346,8 @@ Output ONLY the raw JSON block representing the nodes and connections of the wor
               cleanText = cleanText.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
             }
             try {
-              workflowJson = JSON.parse(cleanText);
+              const parsed = JSON.parse(cleanText);
+              workflowJson = normalizeN8nWorkflow(parsed, description);
             } catch (e) {
               console.error("Failed to parse Gemini output as JSON, creating standard fallback", e);
               workflowJson = createFallbackN8nWorkflow(description);
@@ -384,14 +411,127 @@ function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Fallback n8n workflow creator
+// Generate valid random UUID-v4 strings
+function generateUuid(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+// Validate and normalize an n8n workflow to ensure absolute compatibility when importing
+function normalizeN8nWorkflow(input: any, description: string): any {
+  const workflow: any = {
+    name: typeof input?.name === "string" ? input.name : "Solar Gear Kenya Generated Workflow",
+    nodes: [],
+    connections: {},
+    active: input?.active === true,
+    settings: input?.settings || {},
+    meta: input?.meta || { templateCredsSetupCompleted: true }
+  };
+
+  const rawNodes = Array.isArray(input?.nodes) ? input.nodes : [];
+  const nodeMap = new Map<string, string>();
+  const nodeNames = new Set<string>();
+
+  const getUniqueName = (baseName: string): string => {
+    let clean = baseName.trim().replace(/[\\"]/g, "");
+    if (!clean) clean = "Node";
+    let name = clean;
+    let counter = 1;
+    while (nodeNames.has(name)) {
+      name = `${clean} ${counter}`;
+      counter++;
+    }
+    nodeNames.add(name);
+    return name;
+  };
+
+  rawNodes.forEach((node: any, idx: number) => {
+    if (!node || typeof node !== "object") return;
+
+    const oldName = typeof node.name === "string" ? node.name : `Node_${idx + 1}`;
+    const uniqueName = getUniqueName(oldName);
+    nodeMap.set(oldName, uniqueName);
+    if (node.id) {
+      nodeMap.set(node.id, uniqueName);
+    }
+
+    let nodeId = node.id;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(nodeId || "");
+    if (!nodeId || !isUuid) {
+      nodeId = generateUuid();
+    }
+
+    const nodeType = node.type || "n8n-nodes-base.webhook";
+    const typeVersion = typeof node.typeVersion === "number" ? node.typeVersion : 1;
+
+    const pos = Array.isArray(node.position) && node.position.length === 2 
+      ? [Number(node.position[0]), Number(node.position[1])] 
+      : [100 + (idx * 220), 200];
+
+    workflow.nodes.push({
+      parameters: node.parameters || {},
+      id: nodeId,
+      name: uniqueName,
+      type: nodeType,
+      typeVersion: typeVersion,
+      position: pos
+    });
+  });
+
+  if (workflow.nodes.length === 0) {
+    return createFallbackN8nWorkflow(description);
+  }
+
+  const rawConnections = input?.connections || {};
+  for (const sourceKey of Object.keys(rawConnections)) {
+    const normalizedSource = nodeMap.get(sourceKey) || sourceKey;
+    
+    if (nodeNames.has(normalizedSource)) {
+      const connData = rawConnections[sourceKey];
+      if (connData && typeof connData === "object" && Array.isArray(connData.main)) {
+        workflow.connections[normalizedSource] = {
+          main: connData.main.map((outputGroup: any) => {
+            if (!Array.isArray(outputGroup)) return [];
+            return outputGroup
+              .map((target: any) => {
+                if (!target || typeof target !== "object") return null;
+                const oldTargetNode = target.node;
+                const normalizedTargetNode = nodeMap.get(oldTargetNode) || oldTargetNode;
+                
+                if (nodeNames.has(normalizedTargetNode)) {
+                  return {
+                    node: normalizedTargetNode,
+                    type: target.type || "main",
+                    index: typeof target.index === "number" ? target.index : 0
+                  };
+                }
+                return null;
+              })
+              .filter(Boolean);
+          })
+        };
+      }
+    }
+  }
+
+  return workflow;
+}
+
+// Fallback n8n workflow creator with robust UUIDs and schema compatibility
 function createFallbackN8nWorkflow(description: string) {
+  const node1Id = generateUuid();
+  const node2Id = generateUuid();
+  const node3Id = generateUuid();
+  const node4Id = generateUuid();
   return {
     "name": "Solar Gear Kenya Generated Workflow",
     "nodes": [
       {
         "parameters": {},
-        "id": "node-1",
+        "id": node1Id,
         "name": "On GMB Event",
         "type": "n8n-nodes-base.webhook",
         "typeVersion": 1,
@@ -402,7 +542,7 @@ function createFallbackN8nWorkflow(description: string) {
           "model": "gemini-3.5-flash",
           "prompt": "Extract lead information from the GMB query: " + description
         },
-        "id": "node-2",
+        "id": node2Id,
         "name": "AI Lead Extractor",
         "type": "n8n-nodes-base.googleGemini",
         "typeVersion": 1,
@@ -413,17 +553,17 @@ function createFallbackN8nWorkflow(description: string) {
           "operation": "append",
           "sheetId": "solar-leads-sheets-id"
         },
-        "id": "node-3",
+        "id": node3Id,
         "name": "Store Lead",
         "type": "n8n-nodes-base.googleSheets",
-        "typeVersion": 3,
+        "typeVersion": 4,
         "position": [650, 300]
       },
       {
         "parameters": {
           "message": "Habari! Thank you for contacting Solar Gear Kenya regarding " + description + ". We are compiling your custom solar quote."
         },
-        "id": "node-4",
+        "id": node4Id,
         "name": "Send Twilio WhatsApp",
         "type": "n8n-nodes-base.twilio",
         "typeVersion": 1,
@@ -464,7 +604,10 @@ function createFallbackN8nWorkflow(description: string) {
           ]
         ]
       }
-    }
+    },
+    "active": false,
+    "settings": {},
+    "meta": { "templateCredsSetupCompleted": true }
   };
 }
 
