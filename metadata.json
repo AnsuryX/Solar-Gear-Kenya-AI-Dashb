@@ -1,0 +1,6 @@
+{
+  "name": "Solar Gear Kenya AI Dashboard",
+  "description": "Centralized Marketing & Operations cockpit with n8n MCP integration, multi-agent orchestrator, real-time logging, and interactive blueprints.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

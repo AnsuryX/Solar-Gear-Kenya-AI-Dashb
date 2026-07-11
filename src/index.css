@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-solar-50: #fff7ed;
+  --color-solar-100: #ffedd5;
+  --color-solar-500: #f97316;
+  --color-solar-600: #ea580c;
+  --color-solar-700: #c2410c;
+  --color-solar-950: #431407;
+
+  --color-energy-50: #f0fdf4;
+  --color-energy-100: #dcfce7;
+  --color-energy-500: #22c55e;
+  --color-energy-600: #16a34a;
+  --color-energy-700: #15803d;
+
+  --color-sleek-bg: #0b0e14;
+  --color-sleek-sidebar: #0f121a;
+  --color-sleek-card: #151921;
+  --color-sleek-terminal: #050608;
+}
+
+/* Custom scrollbars for logs */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.3);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+.terminal-glow {
+  box-shadow: 0 0 15px rgba(249, 115, 22, 0.15);
+}
+
+.node-glow-active {
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.25);
+}
