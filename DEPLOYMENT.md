@@ -1,6 +1,6 @@
-# 🚀 Deploying Solar Gear Kenya AI Dashboard to Vercel
+# 🚀 Deploying Solar Gear Kenya AI Dashboard to Vercel or Cloudflare
 
-This guide provides simple instructions for deploying the **Solar Gear Kenya AI Dashboard** to production platforms (such as Vercel, Netlify, or custom servers), and details how to correctly establish connections to your **n8n** instance.
+This guide provides simple instructions for deploying the **Solar Gear Kenya AI Dashboard** to production platforms (such as Vercel, Cloudflare Pages, Netlify, or custom servers), and details how to correctly establish connections to your **n8n** instance.
 
 ---
 
@@ -8,10 +8,10 @@ This guide provides simple instructions for deploying the **Solar Gear Kenya AI 
 
 This application supports two distinct synchronization routing options for n8n workflows:
 
-### Option A: Direct Browser Sync (Recommended for Vercel/Netlify)
-When deployed on static front-end hosting providers like **Vercel** or **Netlify**, the backend custom Express server (`server.ts`) is **not** running (leading to `404 Not Found` errors on any `/api/*` proxy routes).
+### Option A: Direct Browser Sync (Recommended for Vercel, Netlify, and Cloudflare Pages)
+When deployed on static front-end hosting providers like **Vercel** or **Cloudflare Pages**, the backend custom Express server (`server.ts`) is **not** running (leading to `404 Not Found` errors on any `/api/*` proxy routes).
 * **How it works:** The dashboard automatically detects this static host scenario and routes your n8n API traffic **directly** from your browser to your self-hosted n8n instance.
-* **Requirements:** You must enable CORS on your self-hosted n8n instance to authorize incoming connections from your Vercel deployment URL.
+* **Requirements:** You must enable CORS on your self-hosted n8n instance to authorize incoming connections from your deployment URL.
 
 ### Option B: Server API Proxy (Default in Containers)
 When run inside full-stack containers (such as Google Cloud Run or local dev servers), the Express proxy server routes all API traffic on your behalf.
@@ -19,9 +19,9 @@ When run inside full-stack containers (such as Google Cloud Run or local dev ser
 
 ---
 
-## 2. Setting Up n8n CORS (For Vercel Deployment)
+## 2. Setting Up n8n CORS (For Vercel or Cloudflare Pages)
 
-To allow the dashboard to connect directly from your browser to your self-hosted n8n instance on Vercel, configure your self-hosted n8n environment variables to permit cross-origin requests.
+To allow the dashboard to connect directly from your browser to your self-hosted n8n instance, configure your self-hosted n8n environment variables to permit cross-origin requests.
 
 Set the following environment variables on your **n8n hosting environment (Docker, CapRover, or VPS)**:
 
@@ -29,15 +29,15 @@ Set the following environment variables on your **n8n hosting environment (Docke
 # Enable CORS for public API endpoints
 N8N_ENFORCE_SETTINGS_FILE_FOR_USERS=true
 
-# Allow specific origins (replace with your actual Vercel URL, or use '*' to allow any)
-N8N_CORS_ALLOWED_ORIGINS="https://solar-gear-hq.vercel.app"
+# Allow specific origins (replace with your actual Vercel or Cloudflare URL, or use '*' to allow any)
+N8N_CORS_ALLOWED_ORIGINS="https://solar-gear-hq.vercel.app,https://solar-gear-kenya-ai-dashboard.pages.dev"
 ```
 
 > 💡 **Tip:** If you are testing across multiple preview URLs, you can temporarily set `N8N_CORS_ALLOWED_ORIGINS="*"` to allow immediate connectivity.
 
 ---
 
-## 3. Deploying to Vercel in 3 Steps
+## 3. Deploying to Vercel
 
 ### Step 1: Push Code to GitHub
 Ensure all your modified files are committed and pushed to a remote GitHub repository.
@@ -56,7 +56,26 @@ Click **Deploy**! Once completed, open your deployed dashboard URL.
 
 ---
 
-## 4. Connecting and Syncing
+## 4. Deploying to Cloudflare Pages (Recommended)
+
+Cloudflare Pages is the fastest and most secure way to host the static React build of this dashboard.
+
+### Step 1: Link your Repository
+1. Go to your [Cloudflare Dashboard](https://dash.cloudflare.com) and navigate to **Workers & Pages**.
+2. Click **Create** > **Pages** > **Connect to Git**.
+3. Connect your GitHub account and select your repository.
+
+### Step 2: Configure Build Settings
+* **Framework Preset:** `Vite` (or `None`).
+* **Build Command:** `npm run build`
+* **Build Output Directory:** `dist`
+
+### Step 3: Save and Deploy
+Click **Save and Deploy**. Cloudflare will compile your React applet and provide a high-speed global static URL (e.g., `https://solar-gear-kenya-ai-dashboard.pages.dev`).
+
+---
+
+## 5. Connecting and Syncing
 
 1. Open your deployed dashboard.
 2. In the **n8n Live-Sync Orchestrator** section, click **Configure Instance**.
