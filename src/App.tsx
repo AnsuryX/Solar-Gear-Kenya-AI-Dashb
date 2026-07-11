@@ -46,16 +46,23 @@ export default function App() {
 
     eventSource.onopen = () => {
       setIsConnected(true);
-      setLogs(prev => [
-        ...prev,
-        {
-          id: "sse-established-" + Date.now(),
-          timestamp: new Date().toLocaleTimeString(),
-          agent: "System Controller",
-          level: "success",
-          message: "REAL_TIME_STREAMING_ONLINE: Secure channel established with operations cockpit."
+      setLogs(prev => {
+        const id = "sse-established-" + Date.now() + "-" + Math.random().toString(36).substr(2, 5);
+        // Avoid adding too many connection-established messages if reconnected
+        if (prev.some(log => log.message === "REAL_TIME_STREAMING_ONLINE: Secure channel established with operations cockpit.")) {
+          return prev;
         }
-      ]);
+        return [
+          ...prev,
+          {
+            id,
+            timestamp: new Date().toLocaleTimeString(),
+            agent: "System Controller",
+            level: "success",
+            message: "REAL_TIME_STREAMING_ONLINE: Secure channel established with operations cockpit."
+          }
+        ];
+      });
     };
 
     eventSource.onmessage = (event) => {
@@ -77,7 +84,14 @@ export default function App() {
           setActiveTab('n8n');
         }
 
-        setLogs(prev => [...prev, logData]);
+        setLogs(prev => {
+          // If the log with this ID already exists, make its ID unique to prevent list key duplication
+          if (prev.some(log => log.id === logData.id)) {
+            const uniqueId = `${logData.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+            return [...prev, { ...logData, id: uniqueId }];
+          }
+          return [...prev, logData];
+        });
       } catch (e) {
         console.error("Failed to parse incoming log SSE event stream", e);
       }
@@ -86,16 +100,24 @@ export default function App() {
     eventSource.onerror = (err) => {
       console.error("SSE connection error", err);
       setIsConnected(false);
-      setLogs(prev => [
-        ...prev,
-        {
-          id: "sse-error-" + Date.now(),
-          timestamp: new Date().toLocaleTimeString(),
-          agent: "System Controller",
-          level: "error",
-          message: "SSE connection lost. Reconnecting in background..."
+      setLogs(prev => {
+        const id = "sse-error-" + Date.now() + "-" + Math.random().toString(36).substr(2, 5);
+        // Avoid spamming error logs in state if already logged recently
+        const lastLog = prev[prev.length - 1];
+        if (lastLog && lastLog.message === "SSE connection lost. Reconnecting in background...") {
+          return prev;
         }
-      ]);
+        return [
+          ...prev,
+          {
+            id,
+            timestamp: new Date().toLocaleTimeString(),
+            agent: "System Controller",
+            level: "error",
+            message: "SSE connection lost. Reconnecting in background..."
+          }
+        ];
+      });
     };
 
     return () => {

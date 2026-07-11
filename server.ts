@@ -59,10 +59,12 @@ app.get("/api/logs/stream", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // Disable nginx proxy buffering
   
-  // Send initial connected message
+  // Send initial connected message with a truly unique ID
+  const connectId = "system-connect-" + Date.now() + "-" + Math.random().toString(36).substr(2, 5);
   res.write(`data: ${JSON.stringify({
-    id: "system-connect",
+    id: connectId,
     timestamp: new Date().toLocaleTimeString(),
     agent: "System Controller",
     level: "success",
@@ -71,7 +73,17 @@ app.get("/api/logs/stream", (req, res) => {
   
   sseClients.push(res);
   
+  // Keep-alive heartbeat to prevent proxy timeouts (runs every 25 seconds)
+  const keepAliveInterval = setInterval(() => {
+    try {
+      res.write(":\n\n"); // Send SSE comment heartbeat
+    } catch (e) {
+      // client connection might be closed
+    }
+  }, 25000);
+  
   req.on("close", () => {
+    clearInterval(keepAliveInterval);
     sseClients = sseClients.filter(client => client !== res);
   });
 });
